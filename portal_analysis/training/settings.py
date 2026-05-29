@@ -11,7 +11,7 @@ def get_base_processed_directory() -> Path:
     Priority:
     1. PORTAL_DATA_DIR or HAND_MOVEMENT_DATA_DIR environment variable
     2. portal_analysis.config.BASE_PROCESSED_DIRECTORY
-    3. config.py at repo root (copy from config.example.py)
+    3. config.py at repo root (optional local override)
     """
     for env_name in ("PORTAL_DATA_DIR", "HAND_MOVEMENT_DATA_DIR"):
         env_dir = os.environ.get(env_name)
@@ -30,6 +30,6 @@ def get_base_processed_directory() -> Path:
     except ImportError as exc:
         raise ImportError(
             "Data directory not configured. Set PORTAL_DATA_DIR, use "
-            "portal_analysis.config.BASE_PROCESSED_DIRECTORY, or copy "
-            "config.example.py to config.py."
+            "portal_analysis.config.BASE_PROCESSED_DIRECTORY, or add "
+            "BASE_PROCESSED_DIRECTORY to a config.py at the repo root."
         ) from exc

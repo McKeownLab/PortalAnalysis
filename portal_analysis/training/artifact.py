@@ -41,8 +41,9 @@ def build_metadata(
     task_config: TaskConfig,
     metrics: Optional[Dict[str, float]] = None,
     version: Optional[str] = None,
+    dataset: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Any]:
-    return {
+    meta: Dict[str, Any] = {
         "version": version or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "git_sha": _git_revision(),
@@ -52,6 +53,9 @@ def build_metadata(
         "task_config": task_config.to_dict(),
         "metrics": metrics or {},
     }
+    if dataset is not None:
+        meta["dataset"] = dataset
+    return meta
 
 
 def save_artifact_bundle(
@@ -62,11 +66,14 @@ def save_artifact_bundle(
     task_config: TaskConfig,
     metrics: Optional[Dict[str, float]] = None,
     version: Optional[str] = None,
+    dataset: Optional[Dict[str, int]] = None,
 ) -> Path:
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    metadata = build_metadata(task_config, metrics=metrics, version=version)
+    metadata = build_metadata(
+        task_config, metrics=metrics, version=version, dataset=dataset
+    )
     metadata["augmenter_config"] = {
         "smooth_window_length": augmenter.smooth_window_length,
         "smooth_polyorder": augmenter.smooth_polyorder,

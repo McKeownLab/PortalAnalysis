@@ -1,14 +1,19 @@
-# PortalAnalysis — Hand Movement Training & Inference
+# Hand Movement Training & Inference
 
-Shareable package for **training**, **evaluating**, and **running inference** on three MDS-UPDRS hand motor tasks from the UBC Booth system.
+Shareable package for **training**, **evaluating**, and **running inference** on four MDS-UPDRS hand motor tasks.
 
 | Task | MDS item | Data column |
 |------|----------|-------------|
 | Finger Tapping | 3.4 | `Finger Normalized Distance` |
 | Hand Open/Close | 3.5 | `Normalized Hand Sum Finger Distances` |
 | Hand Pronation-Supination | 3.6 | `yaw_rad` |
+| Hand Tremor | 3.11 | `mean_fingertip_distance_from_center` |
 
-Each task predicts **severity** (0–3). Symptom column names are listed in `configs/*.json` for future per-symptom models.
+Each task predicts **severity** (0–3). Symptom column names are listed in `configs/*.json`.
+
+![Hand motor tasks and kinematic features](docs/figures/figure_2.png)
+
+*MDS-UPDRS hand motor tasks and the kinematic features extracted from pose: finger tapping (thumb–index distance), hand open/close (mean finger–wrist distances), pronation–supination (palm rotation angle), and hand tremor (mean fingertip distance from center). Source: [figure_2.pdf](docs/figures/figure_2.pdf).*
 
 ---
 
@@ -29,11 +34,10 @@ PortalAnalysis/
 │   ├── finger_tapping.json
 │   ├── hand_open_close.json
 │   └── hand_up_down.json
-├── models/                        # Trained artifacts (gitignored)
+├── models/                        # Trained artifacts (in git)
 ├── scripts/
 │   ├── train_models.py
 │   └── run_inference.py
-└── config.example.py              # Optional local path override
 ```
 
 ---
@@ -130,8 +134,10 @@ Training does **not** write pose or distances; it reads existing `distances/` CS
 models/<task>/<version>/
 ├── classifier.joblib
 ├── rocket.joblib
-└── metadata.json      # task config, accuracy/MAE/MSE on held-out test set
+└── metadata.json      # task config, train/test counts, accuracy/MAE/MSE on held-out test set
 ```
+
+`metadata.json` includes a `dataset` object (`n_train`, `n_test`, `n_evaluated`) recording how many sequences were used for training and evaluation.
 
 `evaluate` prints a classification report and confusion matrix to the terminal; metrics are also stored in `metadata.json`.
 
@@ -149,40 +155,19 @@ pip install -e .
 
 - Default: `portal_analysis/config.py` → `N:/Booth_Processed`
 - Override: `set PORTAL_DATA_DIR=N:\Booth_Processed`
-- Or copy `config.example.py` → `config.py`
+- Or add a root `config.py` with `BASE_PROCESSED_DIRECTORY`
 
 ---
 
 ## Training
 
-Train all three tasks (saves to `models/<task>/latest/`):
-
 ```bash
 python -m portal_analysis.cli train --tasks all
-# or
-python scripts/train_models.py
+python -m portal_analysis.cli train --tasks all --version v1.0.0
+python -m portal_analysis.cli evaluate --model models/hand_open_close/v1.0.0
 ```
 
-Train one task with a version tag:
-
-```bash
-python -m portal_analysis.cli train --tasks hand_open_close --version v1.0.0
-```
-
-Evaluate on the held-out test set:
-
-```bash
-python -m portal_analysis.cli evaluate --model models/hand_open_close/latest
-```
-
-**Artifact layout** (share this folder):
-
-```
-models/hand_open_close/v1.0.0/
-├── classifier.joblib
-├── rocket.joblib
-└── metadata.json      # versions, metrics, full task config
-```
+Artifacts are committed under `models/<task>/<version>/` (see layout above). To release: train with `--version`, commit, tag, push.
 
 ---
 
@@ -200,7 +185,7 @@ Pose mode writes distances under `distances/` and then predicts severity. **Fing
 
 Use `--hands left`, `--hands right`, or `--hands both` (default) to run one or both sides per task.
 
-### From pre-computed pose CSVs (recommended starting point)
+### From pre-computed pose CSVs
 
 Place pose files in the standard layout, then:
 

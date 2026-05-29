@@ -7,11 +7,11 @@ import platform
 from pathlib import Path
 
 
-PORTAL_DATA_DIR = Path(r"N:/Booth_Processed")
+PORTAL_DATA_DIR = Path(r"M:/Booth_Processed")
 system = platform.system()
 
 if system == "Windows":
-    CAMERA_DIRECTORY = Path(r"N:/")
+    CAMERA_DIRECTORY = Path(r"M:/")
 elif system == "Darwin":
     CAMERA_DIRECTORY = Path("/Volumes/Camera")
 elif system == "Linux":

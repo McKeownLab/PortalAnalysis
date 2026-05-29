@@ -35,11 +35,22 @@ def test_fit_save_load_predict(task_config):
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "model"
         save_artifact_bundle(
-            out, augmenter, rocket, classifier, task_config, version="test"
+            out,
+            augmenter,
+            rocket,
+            classifier,
+            task_config,
+            version="test",
+            dataset={"n_train": 12, "n_test": 3, "n_evaluated": 3},
         )
         from portal_analysis.training.artifact import ArtifactBundle
 
         bundle = load_artifact_bundle(out)
+        assert bundle.metadata["dataset"] == {
+            "n_train": 12,
+            "n_test": 3,
+            "n_evaluated": 3,
+        }
 
     X_test = rng.normal(size=(3, 50)).astype(np.float32)
     preds = predict_sequences(bundle, X_test)

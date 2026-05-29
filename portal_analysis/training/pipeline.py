@@ -143,13 +143,18 @@ def train_pipeline(
 
     augmenter, rocket, classifier = fit_pipeline(X_train, y_train, task_config)
 
+    n_train = len(X_train)
+    n_test = len(X_test)
+
     metrics = None
-    if evaluate and len(X_test) > 0:
+    evaluated = False
+    if evaluate and n_test > 0:
         bundle = ArtifactBundle(augmenter, rocket, classifier, {}, Path("."))
         y_pred = predict_sequences(
             bundle, X_test, augmentation_method=task_config.augmentation_method
         )
         metrics = print_results(y_test, y_pred, test_ids)
+        evaluated = True
 
     artifact_path = save_artifact_bundle(
         output_dir=output_dir,
@@ -159,6 +164,11 @@ def train_pipeline(
         task_config=task_config,
         metrics=metrics,
         version=version,
+        dataset={
+            "n_train": n_train,
+            "n_test": n_test,
+            "n_evaluated": n_test if evaluated else 0,
+        },
     )
     print(f"Saved model artifacts to: {artifact_path}")
     return {"artifact_path": artifact_path, "metrics": metrics}
