@@ -34,13 +34,13 @@ def parse_args():
     p.add_argument(
         "--tasks",
         nargs="+",
-        choices=["finger_tapping", "hand_open_close", "hand_up_down"],
+        choices=["finger_tapping", "hand_open_close", "hand_up_down", "both_still"],
         default=None,
         help="Subset of tasks (csv/pose/raw-dir, or filter when inferring from filename)",
     )
     p.add_argument(
         "--task",
-        choices=["finger_tapping", "hand_open_close", "hand_up_down"],
+        choices=["finger_tapping", "hand_open_close", "hand_up_down", "both_still"],
         default=None,
         help="Explicit task for --video-path / --pose-path / --distances-path "
         "when the filename is not a known stem",

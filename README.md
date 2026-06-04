@@ -223,7 +223,7 @@ Three entry points: **pose** (landmark CSVs), **csv** (feature time series), or 
 | `csv` | `--distances-path` and/or `…/distances/<id>_<side>_<task>_distances.csv` under `--processed-dir` | Feature CSVs ready for all tasks |
 | `video` | `--video-path` and/or MP4s under `--raw-dir` | End-to-end from recordings |
 
-Pose mode writes distances under `distances/` and then predicts severity. All three tasks (finger tapping, hand open/close, pronation–supination) are supported from pose.
+Pose mode writes distances under `distances/` and then predicts severity. All four tasks are supported from pose (tremor runs left and right hands from one `both_still` video).
 
 Use `--hand left`, `--hand right`, or `--hand both` (default) to run one or both sides per task.
 

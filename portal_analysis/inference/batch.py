@@ -18,6 +18,7 @@ from portal_analysis.inference.base import InferenceResult
 from portal_analysis.inference.finger_tapping import FingerTappingPipeline
 from portal_analysis.inference.hand_open_close import HandOpenClosePipeline
 from portal_analysis.inference.hand_up_down import HandUpDownPipeline
+from portal_analysis.inference.both_still import BothStillPipeline
 from portal_analysis.inference.symptoms import load_symptom_models_for_tasks
 from portal_analysis.models.model_manager import HandMovementModel
 
@@ -80,10 +81,16 @@ class BatchInferencePipeline:
         "finger_tapping": FingerTappingPipeline,
         "hand_open_close": HandOpenClosePipeline,
         "hand_up_down": HandUpDownPipeline,
+        "both_still": BothStillPipeline,
     }
 
     # Tasks whose pose CSVs are converted to distances before inference.
-    TASKS_FROM_POSE = frozenset({"finger_tapping", "hand_open_close", "hand_up_down"})
+    TASKS_FROM_POSE = frozenset({
+        "finger_tapping",
+        "hand_open_close",
+        "hand_up_down",
+        "both_still",
+    })
 
     HAND_SIDES = ("left", "right")
 
@@ -100,6 +107,10 @@ class BatchInferencePipeline:
         "hand_up_down": {
             "right": "right_up_down",
             "left": "left_up_down",
+        },
+        "both_still": {
+            "left": "both_still",
+            "right": "both_still",
         },
     }
 
@@ -153,6 +164,18 @@ class BatchInferencePipeline:
     def recording_id(patient_id: str, video_stem: str) -> str:
         """Recording key matching pose/distances/plots: ``{patient_id}_{video_stem}``."""
         return f"{patient_id}_{video_stem}"
+
+    @classmethod
+    def _patient_recording_id(
+        cls,
+        patient_id: str,
+        task_name: str,
+        subtask: str,
+    ) -> str:
+        """Per-recording id for JSON and plots (both_still uses per-hand stem)."""
+        if task_name == "both_still":
+            return BothStillPipeline.hand_distances_stem(patient_id, subtask)
+        return cls.recording_id(patient_id, cls.VIDEO_STEMS[task_name][subtask])
 
     @classmethod
     def inference_output_dir(
@@ -250,8 +273,31 @@ class BatchInferencePipeline:
         return [(subtask, stems[subtask]) for subtask in sides if subtask in stems]
 
     @classmethod
+    def _recording_stem(
+        cls,
+        task_name: str,
+        patient_id: str,
+        subtask: str,
+    ) -> str:
+        """Stem used for JSON / plots / per-hand tremor CSV names."""
+        if task_name == "both_still":
+            return BothStillPipeline.hand_distances_stem(patient_id, subtask)
+        return cls.VIDEO_STEMS[task_name][subtask]
+
+    @classmethod
     def resolve_task_subtask_from_stem(cls, stem: str) -> Optional[Tuple[str, str]]:
         """Map a filename stem (no extension) to (task_name, subtask)."""
+        if stem.endswith("_both_still_left_hand"):
+            return "both_still", "left"
+        if stem.endswith("_both_still_right_hand"):
+            return "both_still", "right"
+        if stem == "both_still" or (
+            stem.endswith("_both_still")
+            and not stem.endswith("_left_hand")
+            and not stem.endswith("_right_hand")
+        ):
+            return "both_still", "both"
+
         for task_name, stems in cls.VIDEO_STEMS.items():
             for subtask, video_stem in stems.items():
                 if stem == video_stem or stem.endswith(f"_{video_stem}"):
@@ -287,13 +333,19 @@ class BatchInferencePipeline:
                     f"Unknown task {task!r}. "
                     f"Choose from: {', '.join(cls.TASK_PIPELINE_MAP)}."
                 )
-            if hands == "both":
+            if hands == "both" and task != "both_still":
                 raise ValueError(
                     f"With an explicit task, set --hand to left or right "
                     f"(one {file_label} corresponds to one hand)."
                 )
             if tasks is not None and task not in tasks:
                 return []
+            if task == "both_still" and hands == "both":
+                return [
+                    (task, subtask, Path(path))
+                    for path in paths
+                    for subtask in cls.normalize_hands(hands)
+                ]
             subtask = hands
             return [(task, subtask, Path(path)) for path in paths]
 
@@ -310,6 +362,10 @@ class BatchInferencePipeline:
                 )
             task_name, subtask = resolved
             if tasks is not None and task_name not in tasks:
+                continue
+            if task_name == "both_still" and subtask == "both":
+                for side in cls.normalize_hands(hands):
+                    entries.append((task_name, side, path))
                 continue
             if subtask not in cls.normalize_hands(hands):
                 continue
@@ -429,6 +485,10 @@ class BatchInferencePipeline:
         patient_id: str,
         video_stem: str,
     ) -> Path:
+        if task_name == "both_still":
+            return BothStillPipeline.distances_csv_path(
+                processed_dir, patient_id, subtask, prefer_results=True
+            )
         del task_name, subtask
         return (
             cls.results_dir(processed_dir)
@@ -445,6 +505,14 @@ class BatchInferencePipeline:
         patient_id: str,
         video_stem: str,
     ) -> Path:
+        if task_name == "both_still":
+            return (
+                Path(processed_dir)
+                / task_name
+                / subtask
+                / "distances"
+                / f"{BothStillPipeline.hand_distances_stem(patient_id, subtask)}.csv"
+            )
         return (
             Path(processed_dir)
             / task_name
@@ -498,7 +566,13 @@ class BatchInferencePipeline:
         processed_dir: Path,
         patient_id: str,
         video_stem: str,
+        *,
+        task_name: Optional[str] = None,
+        subtask: Optional[str] = None,
     ) -> Path:
+        if task_name == "both_still" and subtask is not None:
+            stem = BothStillPipeline.hand_distances_stem(patient_id, subtask)
+            return cls.results_dir(processed_dir) / "plots" / f"{stem}_distances.png"
         return (
             cls.results_dir(processed_dir)
             / "plots"
@@ -550,10 +624,16 @@ class BatchInferencePipeline:
                         distances_dir, task_name, subtask, patient_id, video_stem
                     )
                     plot_path = self._plot_png_path(
-                        distances_dir, patient_id, video_stem
+                        distances_dir,
+                        patient_id,
+                        video_stem,
+                        task_name=task_name,
+                        subtask=subtask,
                     )
 
-                    recording_id = self.recording_id(patient_id, video_stem)
+                    recording_id = self._patient_recording_id(
+                        patient_id, task_name, subtask
+                    )
                     result: Optional[InferenceResult] = pipeline.run_from_csv(
                         patient_id=recording_id,
                         distances_csv=csv_path,
@@ -598,11 +678,17 @@ class BatchInferencePipeline:
         for entry in entries:
             pipeline = self._pipelines[entry.task_name]
             video_stem = self.VIDEO_STEMS[entry.task_name][entry.subtask]
-            recording_id = self.recording_id(entry.patient_id, video_stem)
+            recording_id = self._patient_recording_id(
+                entry.patient_id, entry.task_name, entry.subtask
+            )
             plot_path = None
             if processed_dir is not None:
                 plot_path = self._plot_png_path(
-                    processed_dir, entry.patient_id, video_stem
+                    processed_dir,
+                    entry.patient_id,
+                    video_stem,
+                    task_name=entry.task_name,
+                    subtask=entry.subtask,
                 )
             result = pipeline.run_from_csv(
                 patient_id=recording_id,
@@ -673,12 +759,18 @@ class BatchInferencePipeline:
                         processed_dir, task_name, subtask, patient_id, video_stem
                     )
                     plot_path = self._plot_png_path(
-                        processed_dir, patient_id, video_stem
+                        processed_dir,
+                        patient_id,
+                        video_stem,
+                        task_name=task_name,
+                        subtask=subtask,
                     )
 
-                    recording_id = self.recording_id(patient_id, video_stem)
-                    result: Optional[InferenceResult] = pipeline.run_from_pose(
-                        patient_id=recording_id,
+                    recording_id = self._patient_recording_id(
+                        patient_id, task_name, subtask
+                    )
+                    pose_kwargs = dict(
+                        patient_id=patient_id,
                         pose_csv=pose_path,
                         distances_csv=dist_path,
                         symptom_models=self._symptom_models_for(task_name),
@@ -686,6 +778,19 @@ class BatchInferencePipeline:
                         video_height=video_height,
                         plot_path=plot_path,
                     )
+                    if task_name == "both_still":
+                        pose_kwargs["subtask"] = subtask
+                        pose_kwargs["processed_dir"] = processed_dir
+                    result: Optional[InferenceResult] = pipeline.run_from_pose(
+                        **pose_kwargs
+                    )
+                    if result is not None and task_name == "both_still":
+                        result = InferenceResult(
+                            patient_id=recording_id,
+                            severity=result.severity,
+                            symptoms=result.symptoms,
+                            raw_sequence_length=result.raw_sequence_length,
+                        )
 
                     if result is not None:
                         row = result.as_dict()
@@ -744,12 +849,18 @@ class BatchInferencePipeline:
                 video_stem,
             )
             plot_path = self._plot_png_path(
-                processed_dir, entry.patient_id, video_stem
+                processed_dir,
+                entry.patient_id,
+                video_stem,
+                task_name=entry.task_name,
+                subtask=entry.subtask,
             )
-            recording_id = self.recording_id(entry.patient_id, video_stem)
+            recording_id = self._patient_recording_id(
+                entry.patient_id, entry.task_name, entry.subtask
+            )
 
-            result = pipeline.run_from_pose(
-                patient_id=recording_id,
+            pose_kwargs = dict(
+                patient_id=entry.patient_id,
                 pose_csv=entry.pose_csv,
                 distances_csv=dist_path,
                 symptom_models=self._symptom_models_for(entry.task_name),
@@ -757,6 +868,17 @@ class BatchInferencePipeline:
                 video_height=video_height,
                 plot_path=plot_path,
             )
+            if entry.task_name == "both_still":
+                pose_kwargs["subtask"] = entry.subtask
+                pose_kwargs["processed_dir"] = processed_dir
+            result = pipeline.run_from_pose(**pose_kwargs)
+            if result is not None and entry.task_name == "both_still":
+                result = InferenceResult(
+                    patient_id=recording_id,
+                    severity=result.severity,
+                    symptoms=result.symptoms,
+                    raw_sequence_length=result.raw_sequence_length,
+                )
 
             if result is not None:
                 row = result.as_dict()
@@ -813,12 +935,18 @@ class BatchInferencePipeline:
             dist_dir = results_root / "distances"
             video_stem = self.VIDEO_STEMS[entry.task_name][entry.subtask]
             plot_path = self._plot_png_path(
-                processed_dir, entry.patient_id, video_stem
+                processed_dir,
+                entry.patient_id,
+                video_stem,
+                task_name=entry.task_name,
+                subtask=entry.subtask,
             )
-            recording_id = self.recording_id(entry.patient_id, video_stem)
+            recording_id = self._patient_recording_id(
+                entry.patient_id, entry.task_name, entry.subtask
+            )
 
-            result = pipeline.run_from_video(
-                patient_id=recording_id,
+            video_kwargs = dict(
+                patient_id=entry.patient_id,
                 video_path=entry.video_path,
                 pose_output_dir=pose_dir,
                 distances_output_dir=dist_dir,
@@ -828,6 +956,17 @@ class BatchInferencePipeline:
                 video_height=video_height,
                 plot_path=plot_path,
             )
+            if entry.task_name == "both_still":
+                video_kwargs["subtask"] = entry.subtask
+                video_kwargs["processed_dir"] = processed_dir
+            result = pipeline.run_from_video(**video_kwargs)
+            if result is not None:
+                result = InferenceResult(
+                    patient_id=recording_id,
+                    severity=result.severity,
+                    symptoms=result.symptoms,
+                    raw_sequence_length=result.raw_sequence_length,
+                )
 
             if result is not None:
                 row = result.as_dict()
@@ -887,12 +1026,18 @@ class BatchInferencePipeline:
                     pose_dir = results_root / "pose"
                     dist_dir = results_root / "distances"
                     plot_path = self._plot_png_path(
-                        processed_dir, patient_id, video_stem
+                        processed_dir,
+                        patient_id,
+                        video_stem,
+                        task_name=task_name,
+                        subtask=subtask,
                     )
 
-                    recording_id = self.recording_id(patient_id, video_stem)
-                    result = pipeline.run_from_video(
-                        patient_id=recording_id,
+                    recording_id = self._patient_recording_id(
+                        patient_id, task_name, subtask
+                    )
+                    video_kwargs = dict(
+                        patient_id=patient_id,
                         video_path=video_path,
                         pose_output_dir=pose_dir,
                         distances_output_dir=dist_dir,
@@ -902,6 +1047,17 @@ class BatchInferencePipeline:
                         video_height=video_height,
                         plot_path=plot_path,
                     )
+                    if task_name == "both_still":
+                        video_kwargs["subtask"] = subtask
+                        video_kwargs["processed_dir"] = processed_dir
+                    result = pipeline.run_from_video(**video_kwargs)
+                    if result is not None:
+                        result = InferenceResult(
+                            patient_id=recording_id,
+                            severity=result.severity,
+                            symptoms=result.symptoms,
+                            raw_sequence_length=result.raw_sequence_length,
+                        )
 
                     if result is not None:
                         row = result.as_dict()
